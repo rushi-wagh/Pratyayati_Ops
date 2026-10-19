@@ -57,14 +57,32 @@ export async function createReturnRequest(body) {
       });
     } catch (error) {
       const target = error?.meta?.target;
+
       const referenceCollision =
         error?.code === "P2002" &&
         (Array.isArray(target)
           ? target.includes("reference")
           : String(target).includes("reference"));
 
-      if (referenceCollision && attempt < 2) {
-        continue;
+      if (referenceCollision) {
+        if (attempt < 2) continue;
+
+        throw new Error("Could not generate a unique reference.");
+      }
+
+      // Handle the PostgreSQL partial unique index violation.
+      const isUniqueViolation =
+        error?.code === "23505" ||
+        error?.cause?.code === "23505" ||
+        error?.meta?.code === "23505";
+
+      if (isUniqueViolation) {
+        const duplicateError = new Error(
+          "An active request already exists for this order and item."
+        );
+        duplicateError.code = "DUPLICATE_REQUEST";
+        duplicateError.status = 409;
+        throw duplicateError;
       }
 
       throw error;
