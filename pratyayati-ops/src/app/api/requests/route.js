@@ -1,6 +1,8 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { validateCreateRequest } from "./validation";
+import { createReturnRequest } from "./service";
 
 const ALLOWED_STATUSES = [
   "OPEN",
@@ -151,3 +153,73 @@ export async function GET(request) {
     );
   }
 }
+
+export async function POST(request) {
+  let body;
+
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json(
+      {
+        success: false,
+        error: {
+          code: "INVALID_JSON",
+          message: "Request body must contain valid JSON.",
+        },
+      },
+      { status: 400 }
+    );
+  }
+
+  const validationError = validateCreateRequest(body);
+
+  if (validationError) {
+    const { status, ...error } = validationError;
+
+    return Response.json(
+      { success: false, error },
+      { status }
+    );
+  }
+
+  try {
+    const createdRequest = await createReturnRequest(body);
+
+    return Response.json(
+      {
+        success: true,
+        message: "Return request created successfully.",
+        request: createdRequest,
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    if (error.status === 409) {
+      return Response.json(
+        {
+          success: false,
+          error: {
+            code: error.code,
+            message: error.message,
+          },
+        },
+        { status: 409 }
+      );
+    }
+
+    console.error("POST /api/requests failed:", error);
+
+    return Response.json(
+      {
+        success: false,
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Unable to create the return request.",
+        },
+      },
+      { status: 500 }
+    );
+  }
+}
+
