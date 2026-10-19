@@ -54,6 +54,7 @@ export async function GET(_request, { params }) {
   }
 }
 
+
 export async function PATCH(request, { params }) {
   let body;
 
@@ -95,7 +96,10 @@ export async function PATCH(request, { params }) {
       );
     }
 
-    const validationError = validateStatusUpdate(currentRequest, body);
+    const validationError = validateStatusUpdate(
+      currentRequest,
+      body
+    );
 
     if (validationError) {
       const { status, ...error } = validationError;
@@ -127,10 +131,60 @@ export async function PATCH(request, { params }) {
       data.decidedBy = "Operations Agent";
     }
 
-    const updatedRequest = await prisma.returnRequest.update({
-      where: { id },
-      data,
-    });
+    const updatedRequest = await prisma.$transaction(
+      async (tx) => {
+        // Update only if the status has not changed since validation.
+        const updateResult = await tx.returnRequest.updateMany({
+          where: {
+            id,
+            isRemoved: false,
+            status: currentRequest.status,
+          },
+          data,
+        });
+
+        if (updateResult.count !== 1) {
+          const error = new Error(
+            "This request was updated by someone else. Please refresh and try again."
+          );
+          error.code = "STATUS_CONFLICT";
+          throw error;
+        }
+
+        // Record approval/rejection in the append-only notes history.
+        if (
+          body.status === "APPROVED" ||
+          body.status === "REJECTED"
+        ) {
+          let content;
+
+          if (body.status === "APPROVED") {
+            content =
+              `Request approved. Resolution: ${body.resolutionType}.`;
+
+            if (body.resolutionType === "REFUND") {
+              content +=
+                ` Refund amount: ₹${Number(body.refundAmount).toFixed(2)}.`;
+            }
+          } else {
+            content = "Request rejected.";
+          }
+
+          await tx.requestNote.create({
+            data: {
+              requestId: id,
+              category: "DECISION",
+              content,
+              author: "Operations Agent",
+            },
+          });
+        }
+
+        return tx.returnRequest.findUnique({
+          where: { id },
+        });
+      }
+    );
 
     return NextResponse.json({
       success: true,
@@ -138,6 +192,19 @@ export async function PATCH(request, { params }) {
       request: updatedRequest,
     });
   } catch (error) {
+    if (error?.code === "STATUS_CONFLICT") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "STATUS_CONFLICT",
+            message: error.message,
+          },
+        },
+        { status: 409 }
+      );
+    }
+
     console.error("Update request status failed:", error);
 
     return NextResponse.json(
@@ -152,3 +219,4 @@ export async function PATCH(request, { params }) {
     );
   }
 }
+
