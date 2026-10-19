@@ -384,7 +384,7 @@ npm install
 Create a `.env` file in the project root and configure the database connection expected by `prisma.config.ts`.
 
 ```env
-DATABASE_URL="your_postgresql_connection_string"
+DB_URL="your_postgresql_connection_string"
 ```
 
 Use your actual database connection string. Never commit `.env` or expose database credentials in the repository.
