@@ -15,3 +15,21 @@ export async function fetchRequests({ page, search, status, reason, sort }) {
 
   return payload;
 }
+
+export async function createRequest(requestData) {
+  const response = await fetch("/api/requests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(requestData),
+  });
+  const payload = await response.json();
+
+  if (!response.ok || !payload.success) {
+    const error = new Error(payload.error?.message || "Unable to create the return request.");
+    error.code = payload.error?.code;
+    error.fields = payload.error?.fields || [];
+    throw error;
+  }
+
+  return payload;
+}
