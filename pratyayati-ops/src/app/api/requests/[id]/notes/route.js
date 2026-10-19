@@ -100,23 +100,6 @@ export async function POST(request, { params }) {
       );
     }
 
-    if (
-      returnRequest.status === "COMPLETED" ||
-      returnRequest.status === "REJECTED"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "REQUEST_CLOSED",
-            message:
-              "Notes cannot be added to a completed or rejected request.",
-          },
-        },
-        { status: 409 }
-      );
-    }
-
     const note = await prisma.requestNote.create({
       data: {
         requestId: id,
