@@ -33,3 +33,23 @@ export async function createRequest(requestData) {
 
   return payload;
 }
+
+export async function fetchRequest(id) {
+  const response = await fetch(`/api/requests/${encodeURIComponent(id)}`);
+  let payload;
+
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("Unable to read the request response.");
+  }
+
+  if (!response.ok || !payload.success) {
+    const error = new Error(payload.error?.message || "Unable to fetch the request.");
+    error.code = payload.error?.code;
+    error.status = response.status;
+    throw error;
+  }
+
+  return payload.request;
+}
