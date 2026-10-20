@@ -8,6 +8,7 @@ export default function Icon({ name, size = 18 }) {
     menu: <><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></>,
     close: <><path d="m6 6 12 12" /><path d="m18 6-12 12" /></>,
     filter: <><path d="M4 6h16" /><path d="M7 12h10" /><path d="M10 18h4" /></>,
+    trash: <><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="m6 7 1 13h10l1-13" /><path d="M9 7V4h6v3" /></>,
   };
 
   return (

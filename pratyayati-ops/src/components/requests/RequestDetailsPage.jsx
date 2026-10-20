@@ -1,13 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/layout/AppShell";
 import Icon from "@/components/ui/Icon";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { REASONS } from "@/components/dashboard/constants";
-import { fetchRequest, updateRequestStatus } from "@/lib/requests";
+import {
+  createRequestNote,
+  fetchRequest,
+  removeRequest,
+  updateRequestStatus,
+} from "@/lib/requests";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -38,6 +43,11 @@ const RESOLUTION_OPTIONS = [
   { value: "REFUND", label: "Refund" },
   { value: "REPLACEMENT", label: "Replacement" },
   { value: "STORE_CREDIT", label: "Store credit" },
+];
+
+const NOTE_OPTIONS = [
+  { value: "INTERNAL_UPDATE", label: "Internal Update" },
+  { value: "CUSTOMER_CONTACT", label: "Customer Contact" },
 ];
 
 function formatRefundAmount(value) {
@@ -122,6 +132,7 @@ function Notes({ notes }) {
 
 export default function RequestDetailsPage() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id;
   const [request, setRequest] = useState(null);
   const [state, setState] = useState("loading");
@@ -130,6 +141,16 @@ export default function RequestDetailsPage() {
   const [actionError, setActionError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [noteCategory, setNoteCategory] = useState("INTERNAL_UPDATE");
+  const [noteContent, setNoteContent] = useState("");
+  const [noteError, setNoteError] = useState("");
+  const [noteSuccess, setNoteSuccess] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [removalOpen, setRemovalOpen] = useState(false);
+  const [removalReason, setRemovalReason] = useState("");
+  const [removalError, setRemovalError] = useState("");
+  const [removing, setRemoving] = useState(false);
+  const removalDialogRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -149,6 +170,22 @@ export default function RequestDetailsPage() {
       active = false;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (!removalOpen) return undefined;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape" && !removing) {
+        setRemovalOpen(false);
+        setRemovalError("");
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    removalDialogRef.current?.querySelector("textarea")?.focus();
+
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [removalOpen, removing]);
 
   function resetActionFeedback() {
     setActionError("");
@@ -319,6 +356,171 @@ export default function RequestDetailsPage() {
     );
   }
 
+  async function handleNoteSubmit(event) {
+    event.preventDefault();
+
+    if (!request || request.isRemoved) {
+      setNoteError("This request has been removed and cannot receive new notes.");
+      return;
+    }
+
+    const trimmedContent = noteContent.trim();
+
+    if (!noteCategory) {
+      setNoteError("Please choose a note category.");
+      setNoteSuccess("");
+      return;
+    }
+
+    if (!trimmedContent) {
+      setNoteError("Please enter a note before submitting.");
+      setNoteSuccess("");
+      return;
+    }
+
+    if (trimmedContent.length > 2000) {
+      setNoteError("Notes cannot exceed 2000 characters.");
+      setNoteSuccess("");
+      return;
+    }
+
+    setNoteError("");
+    setNoteSaving(true);
+    setNoteSuccess("");
+
+    try {
+      await createRequestNote(id, {
+        category: noteCategory,
+        content: trimmedContent,
+      });
+
+      const refreshedRequest = await fetchRequest(id);
+      setRequest(refreshedRequest);
+      setNoteCategory("INTERNAL_UPDATE");
+      setNoteContent("");
+      setNoteSuccess("Note added successfully.");
+    } catch (error) {
+      setNoteError(error.message || "Unable to add the note. Please try again.");
+    } finally {
+      setNoteSaving(false);
+    }
+  }
+
+  function openRemovalDialog() {
+    setRemovalReason("");
+    setRemovalError("");
+    setRemovalOpen(true);
+  }
+
+  function closeRemovalDialog() {
+    if (removing) return;
+    setRemovalOpen(false);
+    setRemovalError("");
+  }
+
+  async function handleRemovalSubmit(event) {
+    event.preventDefault();
+    const trimmedReason = removalReason.trim();
+
+    if (!trimmedReason) {
+      setRemovalError("Please provide a reason for removing this request.");
+      return;
+    }
+
+    if (trimmedReason.length > 500) {
+      setRemovalError("Removal reason cannot exceed 500 characters.");
+      return;
+    }
+
+    setRemovalError("");
+    setRemoving(true);
+
+    try {
+      await removeRequest(id, trimmedReason);
+      router.push("/");
+      router.refresh();
+    } catch (error) {
+      setRemovalError(
+        error.message || "Unable to remove the request. Please try again.",
+      );
+      setRemoving(false);
+    }
+  }
+
+  function renderRemovalDialog() {
+    if (!removalOpen) return null;
+
+    return (
+      <div
+        className="removal-dialog-backdrop"
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !removing) {
+            closeRemovalDialog();
+          }
+        }}
+      >
+        <div
+          className="removal-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="removal-dialog-heading"
+          ref={removalDialogRef}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="removal-dialog-heading">
+            <div className="removal-dialog-icon" aria-hidden="true">
+              <Icon name="trash" size={19} />
+            </div>
+            <p className="eyebrow">Remove request</p>
+            <h2 id="removal-dialog-heading">Remove this request?</h2>
+            <p>
+              This request will be hidden from normal operational views. Its
+              record and notes will be preserved.
+            </p>
+          </div>
+          <form onSubmit={handleRemovalSubmit}>
+            <label className="form-field">
+              <span>Reason for removal</span>
+              <textarea
+                value={removalReason}
+                onChange={(event) => {
+                  setRemovalReason(event.target.value);
+                  setRemovalError("");
+                }}
+                maxLength={500}
+                rows={4}
+                placeholder="Explain why this request should be removed..."
+                disabled={removing}
+              />
+            </label>
+            <div className="removal-dialog-meta">
+              <span>{removalReason.length}/500</span>
+            </div>
+            {removalError && (
+              <div className="status-action-feedback status-action-error" role="alert">
+                {removalError}
+              </div>
+            )}
+            <div className="removal-dialog-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={closeRemovalDialog}
+                disabled={removing}
+              >
+                Cancel
+              </button>
+              <button className="danger-button" type="submit" disabled={removing}>
+                {removing ? "Removing…" : "Confirm Removal"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <AppShell>
       <div className="details-page">
@@ -344,6 +546,19 @@ export default function RequestDetailsPage() {
             </header>
 
             {renderStatusActions()}
+
+            <section className="details-card removal-card" aria-labelledby="removal-heading">
+              <div>
+                <h2 id="removal-heading">Remove request</h2>
+                <p>
+                  Hide this request from normal operational views while
+                  preserving its record and notes.
+                </p>
+              </div>
+              <button className="danger-button" type="button" onClick={openRemovalDialog}>
+                Remove Request
+              </button>
+            </section>
 
             <div className="details-layout">
               <section className="details-card request-overview-card">
@@ -391,10 +606,69 @@ export default function RequestDetailsPage() {
                 {request.notes?.length > 0 && <span className="notes-count">{request.notes.length} {request.notes.length === 1 ? "note" : "notes"}</span>}
               </div>
               <Notes notes={request.notes || []} />
+
+              {!request.isRemoved && (
+                <form className="note-form" onSubmit={handleNoteSubmit}>
+                  <div className="form-section-heading">
+                    <h3>Add Note</h3>
+                    <p>Record an internal or customer-facing update.</p>
+                  </div>
+
+                  <div className="note-form-grid">
+                    <label className="form-field">
+                      <span>Category</span>
+                      <select
+                        value={noteCategory}
+                        onChange={(event) => {
+                          setNoteCategory(event.target.value);
+                          setNoteError("");
+                          setNoteSuccess("");
+                        }}
+                        disabled={noteSaving}
+                      >
+                        {NOTE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="note-content-box">
+                      <label className="form-field">
+                        <span>Note</span>
+                        <textarea
+                          value={noteContent}
+                          onChange={(event) => {
+                            setNoteContent(event.target.value);
+                            setNoteError("");
+                            setNoteSuccess("");
+                          }}
+                          maxLength={2000}
+                          rows={5}
+                          placeholder="Enter a note for the request history…"
+                          disabled={noteSaving}
+                        />
+                      </label>
+                      <div className="note-meta-row">
+                        <span>{noteContent.length}/2000</span>
+                        <button className="primary-button" type="submit" disabled={noteSaving}>
+                          {noteSaving ? "Saving…" : "Add Note"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {(noteError || noteSuccess) && (
+                    <div className={`note-form-feedback ${noteError ? "status-action-error" : "status-action-success"}`} role={noteError ? "alert" : "status"}>
+                      {noteError || noteSuccess}
+                    </div>
+                  )}
+                </form>
+              )}
             </section>
           </>
         )}
       </div>
+      {renderRemovalDialog()}
     </AppShell>
   );
 }

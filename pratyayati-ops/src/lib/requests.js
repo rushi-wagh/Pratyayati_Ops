@@ -77,3 +77,51 @@ export async function updateRequestStatus(id, statusData) {
 
   return payload;
 }
+
+export async function createRequestNote(id, noteData) {
+  const response = await fetch(`/api/requests/${encodeURIComponent(id)}/notes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(noteData),
+  });
+  let payload;
+
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("Unable to read the note response.");
+  }
+
+  if (!response.ok || !payload.success) {
+    const error = new Error(payload.error?.message || "Unable to add the note.");
+    error.code = payload.error?.code;
+    error.status = response.status;
+    throw error;
+  }
+
+  return payload;
+}
+
+export async function removeRequest(id, reason) {
+  const response = await fetch(`/api/requests/${encodeURIComponent(id)}/remove`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  let payload;
+
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("Unable to read the removal response.");
+  }
+
+  if (!response.ok || !payload.success) {
+    const error = new Error(payload.error?.message || "Unable to remove the request.");
+    error.code = payload.error?.code;
+    error.status = response.status;
+    throw error;
+  }
+
+  return payload;
+}
