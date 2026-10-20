@@ -600,3 +600,17 @@ Not implemented
 - Removed-request recovery
 - AI support assistant
 - Dedicated removal-history UI
+
+## Rough Estimate Development Time
+
+| Task | Estimated time |
+|---|---:|
+| Understanding requirements (reading the requirements first and then working through them with AI) | 1 hour |
+| Project setup (new to Next.js) | 45 minutes |
+| Database design | 30 minutes |
+| Deciding API endpoints | 30 minutes |
+| Controller implementation — first phase | 1 hour |
+| Controller implementation — second phase | 2 hours |
+| Frontend development | 2.5 hours |
+| Additional implementation work | 1 hour |
+| **Total estimated time** | **9 hours 15 minutes** |
