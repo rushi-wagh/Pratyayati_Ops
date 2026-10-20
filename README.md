@@ -1,3 +1,4 @@
+
 # Pratyayati Ops
 
 A return request management system for creating, reviewing, approving, and tracking product return requests through a controlled lifecycle.
@@ -131,8 +132,8 @@ PostgreSQL (Supabase)
 **Implementation:**
 
 ```text
-OPEN → IN_REVIEW → APPROVED → COMPLETED
-                ↘ REJECTED
+OPEN -> IN_REVIEW -> APPROVED -> COMPLETED
+                \-> REJECTED
 ```
 
 `COMPLETED` and `REJECTED` are terminal states. Invalid transitions are rejected by the backend.
@@ -227,23 +228,24 @@ All endpoints use the `/api` base path.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/requests` | List requests with server-side search, filters, sorting, pagination, and status counts |
+| GET | `/api/requests` | List non-removed requests with server-side search, filters, sorting, pagination, and status counts |
 | POST | `/api/requests` | Create a return request |
 | GET | `/api/requests/:id` | Retrieve request details and associated notes |
 | PATCH | `/api/requests/:id` | Update editable request details or perform a valid status transition |
-| GET | `/api/requests/:id/notes` | Retrieve request notes |
 | POST | `/api/requests/:id/notes` | Add a categorized note |
 | PATCH | `/api/requests/:id/remove` | Soft-remove a request with a reason |
 
+There is no separate `GET /api/requests/:id/notes` endpoint. Request notes are returned as part of `GET /api/requests/:id`.
+
 ### List query parameters
 
-- `search`: Search supported request fields.
+- `search`: Case-insensitive search across `reference`, `customerName`, `customerEmail`, and `orderId`.
 - `status`: Filter by request status.
 - `reason`: Filter by return reason.
-- `sortBy`: Select an allowed sort field.
-- `sortOrder`: Select ascending or descending order.
-- `page`: Page number.
-- `limit`: Number of records per page.
+- `sortBy`: Select an allowed sort field: `createdAt`, `updatedAt`, `customerName`, `status`, or `reference`.
+- `sortOrder`: Select `asc` or `desc`.
+- `page`: Page number. Defaults to `1`.
+- `limit`: Number of records per page. Defaults to `10`, with a maximum of `100`.
 
 Example:
 
@@ -276,12 +278,18 @@ Example request body:
 ```json
 {
   "category": "INTERNAL_UPDATE",
-  "content": "Checked the issue with the warehouse team.",
-  "author": "Admin"
+  "content": "Checked the issue with the warehouse team."
 }
 ```
 
-Supported regular note categories are `INTERNAL_UPDATE` and `CUSTOMER_CONTACT`. Decision notes are managed by the relevant backend workflow.
+Supported regular note categories are:
+
+- `INTERNAL_UPDATE`
+- `CUSTOMER_CONTACT`
+
+Decision notes are created automatically by the backend during approval and rejection transitions.
+
+The backend assigns the note author as `Operations Agent`. Any `author` value sent by the client is ignored.
 
 ### Soft-remove a request
 
@@ -330,9 +338,17 @@ Notes reference their parent request through a foreign key and are intended to r
 
 ## Seed Data
 
-The development database has been seeded with at least 30 return requests and associated notes.
+The development database has been seeded with 30 return requests and associated notes.
 
 The seed dataset covers different lifecycle statuses and return reasons so that dashboard counts, filtering, pagination, and request-detail workflows can be tested without manually creating every record.
+
+The seed command is:
+
+```bash
+npm run prisma:seed
+```
+
+The seed script checks for existing seed records before inserting data and does not create duplicate seed records when rerun.
 
 ## Validation and Testing
 
@@ -387,7 +403,7 @@ Create a `.env` file in the project root and configure the database connection e
 DB_URL="your_postgresql_connection_string"
 ```
 
-Use your actual database connection string. Never commit `.env` or expose database credentials in the repository.
+Use your actual PostgreSQL connection string. Never commit `.env` or expose database credentials in the repository.
 
 ### 3. Generate the Prisma client
 
@@ -433,6 +449,5 @@ Open [http://localhost:3000](http://localhost:3000).
 
 The core backend routes, database schema, request lifecycle rules, duplicate prevention, notes, soft removal, and seed data have been implemented.
 
-Manual API tests have been performed for the reported request-creation cases. Remaining verification, frontend integration, responsive UI checks, documentation review, and deployment checks should be completed before describing the full assignment as finished.
-
-
+The dashboard to see all returning request amd to add new return request is done
+````
