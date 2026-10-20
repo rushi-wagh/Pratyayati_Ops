@@ -1,11 +1,11 @@
 
-# Pratyayati Ops
+# ReturnDesk — Pratyayati Ops
 
 A return request management system for creating, reviewing, approving, and tracking product return requests through a controlled lifecycle.
 
 ## Overview
 
-Pratyayati Ops helps manage return requests through a centralized dashboard. It supports request creation, status transitions, resolution decisions, activity notes, duplicate prevention, and non-destructive request removal.
+Pratyayati Ops provides a centralized dashboard for managing return requests. It supports request creation, controlled status transitions, resolution decisions, activity notes, duplicate prevention, and non-destructive request removal.
 
 ### Key Features
 
@@ -14,17 +14,17 @@ Pratyayati Ops helps manage return requests through a centralized dashboard. It 
 - Search, filter, sort, and paginate requests on the server.
 - Enforce valid status transitions on the backend.
 - Record refund, replacement, and store-credit decisions.
-- Maintain categorized, chronological activity notes.
+- Maintain categorized, chronological, append-only activity notes.
 - Prevent duplicate active requests for the same order and item.
 - Lock customer and item details after a final decision.
-- Soft-remove requests while retaining their records.
+- Soft-remove eligible requests while retaining their records.
 - Seed the database with sample requests for development and testing.
 
 ## Technology Stack
 
 - **Frontend:** Next.js App Router, React, Tailwind CSS
 - **Backend:** Next.js Route Handlers
-- **Language:** JavaScript for application code
+- **Language:** JavaScript
 - **Database:** PostgreSQL
 - **ORM:** Prisma
 - **Database hosting:** Supabase PostgreSQL
@@ -40,9 +40,7 @@ Client / Dashboard
 Next.js Route Handlers
         |
         +-- Request validation
-        |
         +-- Business logic
-        |
         +-- Status and lifecycle rules
         |
         v
@@ -52,26 +50,26 @@ Prisma ORM
 PostgreSQL (Supabase)
 ```
 
-### Backend responsibilities
+### Backend Responsibilities
 
 - **Route handlers:** Process HTTP requests and return appropriate responses.
 - **Validation:** Validate required fields, email addresses, supported enum values, resolution data, and status transitions.
-- **Service logic:** Create requests, generate references, and handle duplicate-request checks.
+- **Business logic:** Create requests, generate references, and handle duplicate-request checks.
 - **Database:** Persist requests and notes, enforce uniqueness constraints, and retain removal metadata.
 
 ## Product Decision Log
 
-### Decision 01: Dashboard-first experience
+### Decision 01: Dashboard-First Experience
 
 **Status:** Finalized
 
-**Decision:** Make the dashboard the primary entry point, with compact status-count cards above the request table.
+**Decision:** Make the dashboard the primary entry point, with status-count cards above the request table.
 
 **Why:** Users should understand the request workload and locate requests quickly without navigating through multiple screens.
 
 **Implementation:** The list API returns requests, pagination metadata, and status counts.
 
-### Decision 02: Dedicated request creation page
+### Decision 02: Dedicated Request Creation Page
 
 **Status:** Finalized
 
@@ -81,7 +79,7 @@ PostgreSQL (Supabase)
 
 **Implementation:** Request creation is handled by `POST /api/requests`.
 
-### Decision 03: Manual request entry
+### Decision 03: Manual Request Entry
 
 **Status:** Finalized
 
@@ -91,7 +89,7 @@ PostgreSQL (Supabase)
 
 **Implementation:** The backend validates submitted fields before creating a database record.
 
-### Decision 04: Generated reference and navigation after creation
+### Decision 04: Generated Reference and Navigation After Creation
 
 **Status:** Finalized
 
@@ -101,7 +99,7 @@ PostgreSQL (Supabase)
 
 **Implementation:** References use the `RET-` prefix followed by a short alphanumeric identifier.
 
-### Decision 05: Request reference format
+### Decision 05: Request Reference Format
 
 **Status:** Finalized
 
@@ -111,7 +109,7 @@ PostgreSQL (Supabase)
 
 **Implementation:** The creation service generates references, while database uniqueness constraints prevent duplicate references.
 
-### Decision 06: Categorized, chronological, append-only notes
+### Decision 06: Categorized, Chronological, Append-Only Notes
 
 **Status:** Finalized
 
@@ -121,7 +119,7 @@ PostgreSQL (Supabase)
 
 **Implementation:** Notes are stored separately from requests, associated through a database relation, and ordered by creation time. Decision notes are created by the backend during relevant status transitions.
 
-### Decision 07: Controlled status transitions
+### Decision 07: Controlled Status Transitions
 
 **Status:** Finalized
 
@@ -138,7 +136,7 @@ OPEN -> IN_REVIEW -> APPROVED -> COMPLETED
 
 `COMPLETED` and `REJECTED` are terminal states. Invalid transitions are rejected by the backend.
 
-### Decision 08: Resolution-specific refund amount
+### Decision 08: Resolution-Specific Refund Amount
 
 **Status:** Finalized
 
@@ -148,17 +146,23 @@ OPEN -> IN_REVIEW -> APPROVED -> COMPLETED
 
 **Implementation:** The backend validates resolution data and checks refund amounts for positive values and at most two decimal places.
 
-### Decision 09: Non-destructive request removal
+### Decision 09: Non-Destructive Request Removal
 
 **Status:** Finalized
 
-**Decision:** Removal requires a reason and must not permanently delete the request.
+**Decision:** Removal requires a reason and must not permanently delete the request. Only requests in `OPEN` or `REJECTED` status may be removed.
 
-**Why:** Preserve an audit trail and distinguish administrative removal from the business lifecycle status.
+**Why:** Preserve an audit trail while preventing removal of requests that are still being reviewed, have been approved, or have been completed.
 
-**Implementation:** The request is marked as removed with removal metadata. Removed requests are excluded from normal listing queries.
+**Implementation:**
 
-### Decision 10: Debounced server-side list operations
+- `OPEN` and `REJECTED` requests can be removed.
+- Attempts to remove `IN_REVIEW`, `APPROVED`, or `COMPLETED` requests return HTTP `409 Conflict` with error code `REQUEST_REMOVAL_NOT_ALLOWED`.
+- Removal uses soft deletion; the request, its notes, and its history remain in the database.
+- Removal metadata records the reason, timestamp, and actor.
+- Removed requests are excluded from normal listing queries and cannot be accessed through regular request workflows.
+
+### Decision 10: Debounced Server-Side List Operations
 
 **Status:** Finalized
 
@@ -168,7 +172,7 @@ OPEN -> IN_REVIEW -> APPROVED -> COMPLETED
 
 **Implementation:** The list API accepts query parameters for search, status, reason, sort field, sort order, page, and page size.
 
-### Decision 11: Relational database schema and activity logging
+### Decision 11: Relational Database Schema and Activity Logging
 
 **Status:** Finalized
 
@@ -180,9 +184,11 @@ OPEN -> IN_REVIEW -> APPROVED -> COMPLETED
 
 ## Request Lifecycle and Business Rules
 
-### Status transitions
+All critical business rules are enforced on the server. Frontend controls alone are not sufficient enforcement.
 
-| Current status | Allowed next status |
+### 1. Status Transitions
+
+| Current Status | Allowed Next Status |
 |---|---|
 | `OPEN` | `IN_REVIEW` |
 | `IN_REVIEW` | `APPROVED`, `REJECTED` |
@@ -190,29 +196,59 @@ OPEN -> IN_REVIEW -> APPROVED -> COMPLETED
 | `COMPLETED` | None |
 | `REJECTED` | None |
 
-Approval requires a valid resolution. Requests cannot bypass the defined lifecycle.
+Invalid transitions, such as moving directly from `OPEN` to `COMPLETED`, are refused by the backend.
 
-### Editing restrictions
+### 2. Approval and Resolution
 
-Customer and item details can be edited while a request is in `OPEN` or `IN_REVIEW`.
+Supported resolutions:
 
-Once a request reaches `APPROVED`, `REJECTED`, or `COMPLETED`, detail edits are rejected by the backend.
+- `REFUND`
+- `REPLACEMENT`
+- `STORE_CREDIT`
 
-Notes may still be added after a request reaches a final status, provided the request has not been removed.
+Validation rules:
 
-### Duplicate active requests
+- A request cannot be approved without a valid resolution.
+- A refund requires an amount greater than zero.
+- Refund amounts support at most two decimal places.
+- Replacement and Store Credit must not have a refund amount.
+- Invalid or incomplete resolution data is rejected by the backend.
+
+### 3. Duplicate Active Requests
 
 The system prevents more than one active request for the same order and item combination.
 
-A PostgreSQL partial unique index enforces this rule for requests that have not been removed and are not in `COMPLETED` or `REJECTED`.
+- A request that has not reached `REJECTED` or `COMPLETED` blocks another request for the same order and item.
+- Once the earlier request reaches `REJECTED` or `COMPLETED`, a new request may be created.
+- Removed requests must not block the creation of a new request.
 
-This database constraint protects against concurrent creation attempts. A completed or rejected request does not block a new request for the same order and item.
+A PostgreSQL partial unique index enforces the active-request constraint and protects against concurrent creation attempts.
 
-### Soft removal
+### 4. Editing Restrictions
 
-Removal is independent of lifecycle status. It records the removal reason, timestamp, and actor metadata rather than deleting the record.
+Customer and item details can be edited while a request is in `OPEN` or `IN_REVIEW`.
 
-Removed requests are excluded from normal listing queries and cannot be modified through regular request workflows.
+Once a request reaches `APPROVED`, `REJECTED`, or `COMPLETED`, detail edits are refused by the backend.
+
+Notes may still be added after a request reaches a final status, provided the request has not been removed.
+
+### 5. Non-Destructive Removal
+
+Only requests in `OPEN` or `REJECTED` status can be removed.
+
+| Request Status | Removal Allowed? |
+|---|---|
+| `OPEN` | Yes |
+| `IN_REVIEW` | No |
+| `APPROVED` | No |
+| `COMPLETED` | No |
+| `REJECTED` | Yes |
+
+Removal requires a non-empty reason and does not permanently delete the database record.
+
+Attempts to remove an ineligible request return HTTP `409 Conflict` with the machine-readable error code `REQUEST_REMOVAL_NOT_ALLOWED`.
+
+The removal operation preserves existing notes and request history. Removed requests are excluded from normal listing queries and cannot be modified through regular request workflows.
 
 ## API Documentation
 
@@ -237,7 +273,7 @@ All endpoints use the `/api` base path.
 
 There is no separate `GET /api/requests/:id/notes` endpoint. Request notes are returned as part of `GET /api/requests/:id`.
 
-### List query parameters
+### List Query Parameters
 
 - `search`: Case-insensitive search across `reference`, `customerName`, `customerEmail`, and `orderId`.
 - `status`: Filter by request status.
@@ -247,13 +283,15 @@ There is no separate `GET /api/requests/:id/notes` endpoint. Request notes are r
 - `page`: Page number. Defaults to `1`.
 - `limit`: Number of records per page. Defaults to `10`, with a maximum of `100`.
 
+Search, filtering, sorting, and pagination are performed on the server and can be combined.
+
 Example:
 
 ```http
 GET /api/requests?status=OPEN&reason=DEFECTIVE&sortBy=createdAt&sortOrder=desc&page=1&limit=10
 ```
 
-### Create a request
+### Create a Request
 
 Example request body:
 
@@ -271,7 +309,15 @@ Example request body:
 
 A successful creation returns `201 Created` and includes the generated reference.
 
-### Add a note
+Supported return reasons:
+
+- `DAMAGED`
+- `WRONG_ITEM`
+- `SIZE_ISSUE`
+- `NOT_AS_DESCRIBED`
+- `CHANGED_MIND`
+
+### Add a Note
 
 Example request body:
 
@@ -282,7 +328,7 @@ Example request body:
 }
 ```
 
-Supported regular note categories are:
+Supported regular note categories:
 
 - `INTERNAL_UPDATE`
 - `CUSTOMER_CONTACT`
@@ -291,7 +337,9 @@ Decision notes are created automatically by the backend during approval and reje
 
 The backend assigns the note author as `Operations Agent`. Any `author` value sent by the client is ignored.
 
-### Soft-remove a request
+Notes are chronological and append-only during normal application use. Existing notes are not edited or deleted through the regular workflow.
+
+### Soft-Remove a Request
 
 Example request body:
 
@@ -301,17 +349,19 @@ Example request body:
 }
 ```
 
-The backend records the removal metadata instead of physically deleting the request.
+The backend records removal metadata instead of physically deleting the request.
 
-### HTTP response conventions
+Removal is permitted only for `OPEN` and `REJECTED` requests. Attempts to remove `IN_REVIEW`, `APPROVED`, or `COMPLETED` requests return `409 Conflict`.
 
-| Status code | Meaning |
+### HTTP Response Conventions
+
+| Status Code | Meaning |
 |---|---|
 | `200` | Successful retrieval or update |
 | `201` | Request successfully created |
 | `400` | Invalid input or malformed request |
 | `404` | Request not found |
-| `409` | Duplicate request or lifecycle conflict |
+| `409` | Duplicate request or lifecycle/removal conflict |
 | `500` / `503` | Unexpected server or service failure, depending on the endpoint |
 
 Response bodies and error codes depend on the endpoint implementation. Errors should not expose stack traces or sensitive database details.
@@ -338,17 +388,27 @@ Notes reference their parent request through a foreign key and are intended to r
 
 ## Seed Data
 
-The development database has been seeded with 30 return requests and associated notes.
+The development database is seeded with 30 return requests and associated notes.
 
 The seed dataset covers different lifecycle statuses and return reasons so that dashboard counts, filtering, pagination, and request-detail workflows can be tested without manually creating every record.
 
-The seed command is:
+The configured seed script is:
+
+```json
+{
+  "prisma:seed": "node prisma/seed.js"
+}
+```
+
+Run it using:
 
 ```bash
 npm run prisma:seed
 ```
 
-The seed script checks for existing seed records before inserting data and does not create duplicate seed records when rerun.
+The seed script checks for existing seed records before inserting data and is designed to avoid creating duplicate seed records when rerun.
+
+Run the seed command only against a database where development sample data is appropriate.
 
 ## Validation and Testing
 
@@ -358,6 +418,12 @@ The following request-creation checks have been reported as passing during manua
 - Duplicate active request rejection.
 - Required-field and email validation.
 - Invalid reason rejection.
+
+The request-removal API was also manually tested with records across all five statuses:
+
+- `OPEN` and `REJECTED` requests were successfully removed.
+- `IN_REVIEW`, `APPROVED`, and `COMPLETED` requests were refused with `409 Conflict` and remained active.
+- The backend removal operation uses a conditional database update to enforce eligibility.
 
 Additional backend checks should cover:
 
@@ -380,6 +446,7 @@ Manual tests do not replace automated tests or deployment checks. Only mark addi
 - The system enforces a defined lifecycle rather than allowing arbitrary status changes.
 - Soft removal preserves records; recovery functionality and a dedicated removal-history UI are not assumed unless implemented.
 - Authentication, authorization, automated integration tests, and deployment-specific operational checks must be reviewed against the final implementation.
+- The AI support assistant described below is a future improvement, not an implemented feature.
 - Production readiness is not claimed solely on the basis of local manual tests.
 
 ## Local Development
@@ -389,13 +456,13 @@ Manual tests do not replace automated tests or deployment checks. Only mark addi
 - Node.js and npm
 - PostgreSQL database, such as a Supabase PostgreSQL project
 
-### 1. Install dependencies
+### 1. Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Configure environment variables
+### 2. Configure Environment Variables
 
 Create a `.env` file in the project root and configure the database connection expected by `prisma.config.ts`.
 
@@ -405,13 +472,15 @@ DB_URL="your_postgresql_connection_string"
 
 Use your actual PostgreSQL connection string. Never commit `.env` or expose database credentials in the repository.
 
-### 3. Generate the Prisma client
+Make sure `.gitignore` excludes `.env` and other files containing secrets. Provide a `.env.example` with placeholder values for the required environment variables.
+
+### 3. Generate the Prisma Client
 
 ```bash
 npx prisma generate
 ```
 
-### 4. Apply database migrations
+### 4. Apply Database Migrations
 
 For local development:
 
@@ -421,15 +490,7 @@ npx prisma migrate dev
 
 Review migrations before applying them to any shared or production database.
 
-### 5. Seed the database
-
-The configured seed script is:
-
-```json
-"prisma:seed": "node prisma/seed.js"
-```
-
-Run it using:
+### 5. Seed the Database
 
 ```bash
 npm run prisma:seed
@@ -437,7 +498,7 @@ npm run prisma:seed
 
 Only run the seed command against a database where development sample data is appropriate.
 
-### 6. Start the development server
+### 6. Start the Development Server
 
 ```bash
 npm run dev
@@ -445,9 +506,47 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Production Deployment
+
+1. Configure `DB_URL` in the hosting provider's environment variables using the PostgreSQL connection string for the production database. Keep credentials out of source control and logs.
+2. Apply committed migrations to the production database:
+
+   ```bash
+   npx prisma migrate deploy
+   ```
+
+3. Build and deploy the application using the hosting provider's supported Next.js workflow.
+4. After deployment, verify `/api/health`, load the dashboard, and test the core workflows against the deployed database.
+
+Do not run `prisma migrate dev` against the production database. Only seed production when sample data is explicitly appropriate.
+
+Before submission, verify that the deployed application and public repository links are accurate and accessible. Ensure the database persists data, seed data is available where required, and the README matches the final implementation.
+
+## Time Spent
+
+Approximately **9 hours 15 minutes** were spent on the assignment.
+
+| Activity | Time Spent |
+|---|---:|
+| Understanding the requirements | 1 hour |
+| Project setup and learning the Next.js setup | 45 minutes |
+| Database design | 30 minutes |
+| API design and planning | 30 minutes |
+| Backend controller implementation | 3 hours |
+| Frontend implementation | 2.5 hours |
+| Additional implementation and validation | Approximately 1 hours |
+| **Total** | **Approximately 9 hours 15 minutes** |
+
+## What I Would Improve With More Time
+
+- **Automated testing:** Add unit and API integration tests for lifecycle transitions, validation, duplicate prevention, notes, and removal eligibility.
+- **Authentication and role-based access:** Introduce sign-in and permissions so actions are limited to the appropriate users.
+- **AI-powered support assistant:** Explore a conversational assistant that helps support agents find request information, understand request history, and identify next steps. Access would respect user permissions, and important actions would remain subject to the existing business rules and normal workflow.
+
 ## Implementation Status
 
-The core backend routes, database schema, request lifecycle rules, duplicate prevention, notes, soft removal, and seed data have been implemented.
+The application includes a dashboard for viewing and managing return requests, server-side search and filtering, sorting and pagination, a dedicated request-creation flow, request details, lifecycle and resolution handling, chronological append-only notes, duplicate-active-request prevention, and soft removal with status-based eligibility checks.
 
-The dashboard to see all returning request amd to add new return request is done
-````
+The database schema, migrations, and development seed data support the core workflow.
+
+Automated testing, authentication and role-based authorization, and the AI support assistant are listed as future improvements rather than completed features. Run the final validation and deployment checks against the actual code and target environment before treating a deployment as production-ready.
