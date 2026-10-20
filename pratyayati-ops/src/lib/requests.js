@@ -53,3 +53,27 @@ export async function fetchRequest(id) {
 
   return payload.request;
 }
+
+export async function updateRequestStatus(id, statusData) {
+  const response = await fetch(`/api/requests/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(statusData),
+  });
+  let payload;
+
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("Unable to read the update response.");
+  }
+
+  if (!response.ok || !payload.success) {
+    const error = new Error(payload.error?.message || "Unable to update the request.");
+    error.code = payload.error?.code;
+    error.status = response.status;
+    throw error;
+  }
+
+  return payload;
+}

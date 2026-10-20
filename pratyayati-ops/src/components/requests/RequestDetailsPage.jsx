@@ -7,7 +7,7 @@ import AppShell from "@/components/layout/AppShell";
 import Icon from "@/components/ui/Icon";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { REASONS } from "@/components/dashboard/constants";
-import { fetchRequest } from "@/lib/requests";
+import { fetchRequest, updateRequestStatus } from "@/lib/requests";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -33,6 +33,12 @@ function formatResolution(value) {
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 }
+
+const RESOLUTION_OPTIONS = [
+  { value: "REFUND", label: "Refund" },
+  { value: "REPLACEMENT", label: "Replacement" },
+  { value: "STORE_CREDIT", label: "Store credit" },
+];
 
 function formatRefundAmount(value) {
   if (value === null || value === undefined || value === "") return "—";
@@ -119,6 +125,11 @@ export default function RequestDetailsPage() {
   const id = params.id;
   const [request, setRequest] = useState(null);
   const [state, setState] = useState("loading");
+  const [resolutionType, setResolutionType] = useState("");
+  const [refundAmount, setRefundAmount] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -138,6 +149,175 @@ export default function RequestDetailsPage() {
       active = false;
     };
   }, [id]);
+
+  function resetActionFeedback() {
+    setActionError("");
+    setSuccessMessage("");
+  }
+
+  function validateApproval() {
+    if (!resolutionType) {
+      return "Please select a resolution before approving this request.";
+    }
+
+    if (resolutionType === "REFUND") {
+      const amount = Number(refundAmount);
+
+      if (!refundAmount.trim() || !Number.isFinite(amount) || amount <= 0) {
+        return "Please enter a valid refund amount greater than ₹0.";
+      }
+
+      if (Math.round(amount * 100) !== amount * 100) {
+        return "Refund amounts can have at most two decimal places.";
+      }
+    }
+
+    return "";
+  }
+
+  async function submitStatusUpdate(payload, message) {
+    resetActionFeedback();
+    setSubmitting(true);
+
+    try {
+      await updateRequestStatus(id, payload);
+      const refreshedRequest = await fetchRequest(id);
+      setRequest(refreshedRequest);
+      setResolutionType("");
+      setRefundAmount("");
+      setSuccessMessage(message);
+    } catch (error) {
+      setActionError(error.message || "Unable to update the request. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleReview() {
+    submitStatusUpdate(
+      { status: "IN_REVIEW" },
+      "Request moved to In Review.",
+    );
+  }
+
+  function handleApprove(event) {
+    event.preventDefault();
+    const validationMessage = validateApproval();
+
+    if (validationMessage) {
+      setActionError(validationMessage);
+      setSuccessMessage("");
+      return;
+    }
+
+    const payload = {
+      status: "APPROVED",
+      resolutionType,
+    };
+
+    if (resolutionType === "REFUND") {
+      payload.refundAmount = refundAmount;
+    }
+
+    submitStatusUpdate(payload, "Request approved successfully.");
+  }
+
+  function handleReject() {
+    if (window.confirm("Reject this request? This action cannot be reversed.")) {
+      submitStatusUpdate({ status: "REJECTED" }, "Request rejected.");
+    }
+  }
+
+  function handleComplete() {
+    if (window.confirm("Mark this approved request as completed?")) {
+      submitStatusUpdate({ status: "COMPLETED" }, "Request marked as completed.");
+    }
+  }
+
+  function renderStatusActions() {
+    if (!request || request.status === "COMPLETED" || request.status === "REJECTED") {
+      return null;
+    }
+
+    return (
+      <section className="details-card status-actions-card" aria-labelledby="status-actions-heading">
+        <div className="details-card-heading">
+          <div>
+            <h2 id="status-actions-heading">Request actions</h2>
+            <p>Move this request through its defined lifecycle.</p>
+          </div>
+        </div>
+        <div className="status-actions-content">
+          {request.status === "OPEN" && (
+            <button className="primary-button" type="button" onClick={handleReview} disabled={submitting}>
+              {submitting ? "Updating…" : "Move to In Review"}
+            </button>
+          )}
+
+          {request.status === "IN_REVIEW" && (
+            <form className="approval-form" onSubmit={handleApprove}>
+              <div className="form-section-heading">
+                <h3>Approve request</h3>
+                <p>Select how the customer request will be resolved.</p>
+              </div>
+              <label className="form-field">
+                <span>Resolution type</span>
+                <select
+                  value={resolutionType}
+                  onChange={(event) => {
+                    setResolutionType(event.target.value);
+                    setActionError("");
+                  }}
+                  disabled={submitting}
+                >
+                  <option value="">Select a resolution</option>
+                  {RESOLUTION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              {resolutionType === "REFUND" && (
+                <label className="form-field">
+                  <span>Refund amount (₹)</span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={refundAmount}
+                    onChange={(event) => {
+                      setRefundAmount(event.target.value);
+                      setActionError("");
+                    }}
+                    placeholder="e.g. 499.00"
+                    disabled={submitting}
+                  />
+                </label>
+              )}
+              <div className="status-action-buttons">
+                <button className="primary-button" type="submit" disabled={submitting}>
+                  {submitting ? "Approving…" : "Approve Request"}
+                </button>
+                <button className="secondary-button" type="button" onClick={handleReject} disabled={submitting}>
+                  Reject Request
+                </button>
+              </div>
+            </form>
+          )}
+
+          {request.status === "APPROVED" && (
+            <button className="primary-button" type="button" onClick={handleComplete} disabled={submitting}>
+              {submitting ? "Completing…" : "Mark as Completed"}
+            </button>
+          )}
+        </div>
+        {(actionError || successMessage) && (
+          <div className={`status-action-feedback ${actionError ? "status-action-error" : "status-action-success"}`} role={actionError ? "alert" : "status"}>
+            {actionError || successMessage}
+          </div>
+        )}
+      </section>
+    );
+  }
 
   return (
     <AppShell>
@@ -162,6 +342,8 @@ export default function RequestDetailsPage() {
                 <p className="page-subtitle">Review the customer return request and its activity history.</p>
               </div>
             </header>
+
+            {renderStatusActions()}
 
             <div className="details-layout">
               <section className="details-card request-overview-card">
