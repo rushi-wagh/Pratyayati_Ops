@@ -547,18 +547,20 @@ export default function RequestDetailsPage() {
 
             {renderStatusActions()}
 
-            <section className="details-card removal-card" aria-labelledby="removal-heading">
-              <div>
-                <h2 id="removal-heading">Remove request</h2>
-                <p>
-                  Hide this request from normal operational views while
-                  preserving its record and notes.
-                </p>
-              </div>
-              <button className="danger-button" type="button" onClick={openRemovalDialog}>
-                Remove Request
-              </button>
-            </section>
+            {["OPEN", "REJECTED"].includes(request.status) && (
+              <section className="details-card removal-card" aria-labelledby="removal-heading">
+                <div>
+                  <h2 id="removal-heading">Remove request</h2>
+                  <p>
+                    Hide this request from normal operational views while
+                    preserving its record and notes.
+                  </p>
+                </div>
+                <button className="danger-button" type="button" onClick={openRemovalDialog}>
+                  Remove Request
+                </button>
+              </section>
+            )}
 
             <div className="details-layout">
               <section className="details-card request-overview-card">

@@ -57,6 +57,9 @@ export async function PATCH(request, { params }) {
       where: {
         id,
         isRemoved: false,
+        status: {
+          in: ["OPEN", "REJECTED"],
+        },
       },
       data: {
         isRemoved: true,
@@ -67,6 +70,25 @@ export async function PATCH(request, { params }) {
     });
 
     if (result.count === 0) {
+      const existingRequest = await prisma.returnRequest.findFirst({
+        where: { id },
+        select: { isRemoved: true, status: true },
+      });
+
+      if (existingRequest && !existingRequest.isRemoved) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "REQUEST_REMOVAL_NOT_ALLOWED",
+              message:
+                "Only open or rejected requests can be removed.",
+            },
+          },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         {
           success: false,
