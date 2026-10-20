@@ -1,301 +1,191 @@
-
 # ReturnDesk — Pratyayati Ops
 
-A return request management system for creating, reviewing, approving, and tracking product return requests through a controlled lifecycle.
+A return request management system for creating, reviewing, approving, tracking, and soft-removing customer return requests through a controlled lifecycle.
 
 ## Overview
 
-Pratyayati Ops provides a centralized dashboard for managing return requests. It supports request creation, controlled status transitions, resolution decisions, activity notes, duplicate prevention, and non-destructive request removal.
+Pratyayati Ops provides an operations dashboard for managing return requests. It supports:
 
-### Key Features
-
-- Create return requests with automatically generated references.
-- View requests and status counts on a dashboard.
-- Search, filter, sort, and paginate requests on the server.
-- Enforce valid status transitions on the backend.
-- Record refund, replacement, and store-credit decisions.
-- Maintain categorized, chronological, append-only activity notes.
-- Prevent duplicate active requests for the same order and item.
-- Lock customer and item details after a final decision.
-- Soft-remove eligible requests while retaining their records.
-- Seed the database with sample requests for development and testing.
+- Request creation
+- Automatically generated request references
+- Server-side search, filtering, sorting, and pagination
+- Controlled request status transitions
+- Refund, replacement, and store-credit resolutions
+- Chronological activity notes
+- Duplicate active-request prevention
+- Backend editing restrictions after decisions
+- Non-destructive request removal
+- PostgreSQL persistence through Prisma
 
 ## Technology Stack
 
-- **Frontend:** Next.js App Router, React, Tailwind CSS
-- **Backend:** Next.js Route Handlers
-- **Language:** JavaScript
-- **Database:** PostgreSQL
-- **ORM:** Prisma
-- **Database hosting:** Supabase PostgreSQL
+- Next.js App Router
+- React
+- JavaScript and JSX
+- Tailwind CSS
+- Next.js Route Handlers
+- PostgreSQL
+- Supabase PostgreSQL
+- Prisma 7
+- `@prisma/adapter-pg`
 
 ## Architecture
 
-The application uses a single Next.js application with server-side route handlers and PostgreSQL persistence.
-
 ```text
-Client / Dashboard
-        |
-        v
+React UI
+   |
+   v
+Next.js App Router
+   |
+   +-- Dashboard
+   +-- Request creation page
+   +-- Request details page
+   +-- Client API helpers
+   |
+   v
 Next.js Route Handlers
-        |
-        +-- Request validation
-        +-- Business logic
-        +-- Status and lifecycle rules
-        |
-        v
+   |
+   +-- Request validation
+   +-- Business logic
+   +-- Status and lifecycle rules
+   +-- Duplicate-request checks
+   +-- Notes
+   +-- Soft removal
+   |
+   v
 Prisma ORM
-        |
-        v
-PostgreSQL (Supabase)
-```
-
-### Backend Responsibilities
-
-- **Route handlers:** Process HTTP requests and return appropriate responses.
-- **Validation:** Validate required fields, email addresses, supported enum values, resolution data, and status transitions.
-- **Business logic:** Create requests, generate references, and handle duplicate-request checks.
-- **Database:** Persist requests and notes, enforce uniqueness constraints, and retain removal metadata.
-
-## Product Decision Log
-
-### Decision 01: Dashboard-First Experience
-
-**Status:** Finalized
-
-**Decision:** Make the dashboard the primary entry point, with status-count cards above the request table.
-
-**Why:** Users should understand the request workload and locate requests quickly without navigating through multiple screens.
-
-**Implementation:** The list API returns requests, pagination metadata, and status counts.
-
-### Decision 02: Dedicated Request Creation Page
-
-**Status:** Finalized
-
-**Decision:** Use a separate page for creating a return request.
-
-**Why:** A dedicated form provides sufficient space for customer, order, item, reason, and description fields without overcrowding the dashboard.
-
-**Implementation:** Request creation is handled by `POST /api/requests`.
-
-### Decision 03: Manual Request Entry
-
-**Status:** Finalized
-
-**Decision:** Allow users to enter customer and order/item information manually.
-
-**Why:** The workflow should work without depending on an external order-management integration.
-
-**Implementation:** The backend validates submitted fields before creating a database record.
-
-### Decision 04: Generated Reference and Navigation After Creation
-
-**Status:** Finalized
-
-**Decision:** Generate a unique return reference, display it after successful creation, and return the user to the dashboard.
-
-**Why:** A human-readable reference makes requests easier to identify and communicate about.
-
-**Implementation:** References use the `RET-` prefix followed by a short alphanumeric identifier.
-
-### Decision 05: Request Reference Format
-
-**Status:** Finalized
-
-**Decision:** Use the `RET-XXXXXX` reference format with six uppercase alphanumeric characters after the prefix.
-
-**Why:** The format is compact, readable, and suitable for displaying and searching requests.
-
-**Implementation:** The creation service generates references, while database uniqueness constraints prevent duplicate references.
-
-### Decision 06: Categorized, Chronological, Append-Only Notes
-
-**Status:** Finalized
-
-**Decision:** Support three note categories: Internal Update, Customer Contact, and Decision.
-
-**Why:** Keeping a history of updates and decisions provides traceability and prevents earlier notes from being silently overwritten.
-
-**Implementation:** Notes are stored separately from requests, associated through a database relation, and ordered by creation time. Decision notes are created by the backend during relevant status transitions.
-
-### Decision 07: Controlled Status Transitions
-
-**Status:** Finalized
-
-**Decision:** Only allow valid transitions through the request lifecycle.
-
-**Why:** Prevent invalid state changes and ensure approval, rejection, and completion follow a consistent workflow.
-
-**Implementation:**
-
-```text
-OPEN -> IN_REVIEW -> APPROVED -> COMPLETED
-                \-> REJECTED
-```
-
-`COMPLETED` and `REJECTED` are terminal states. Invalid transitions are rejected by the backend.
-
-### Decision 08: Resolution-Specific Refund Amount
-
-**Status:** Finalized
-
-**Decision:** Support Refund, Replacement, and Store Credit as resolution types. A refund amount is applicable only to Refund.
-
-**Why:** A monetary amount should not be recorded for a non-monetary resolution.
-
-**Implementation:** The backend validates resolution data and checks refund amounts for positive values and at most two decimal places.
-
-### Decision 09: Non-Destructive Request Removal
-
-**Status:** Finalized
-
-**Decision:** Removal requires a reason and must not permanently delete the request. Only requests in `OPEN` or `REJECTED` status may be removed.
-
-**Why:** Preserve an audit trail while preventing removal of requests that are still being reviewed, have been approved, or have been completed.
-
-**Implementation:**
-
-- `OPEN` and `REJECTED` requests can be removed.
-- Attempts to remove `IN_REVIEW`, `APPROVED`, or `COMPLETED` requests return HTTP `409 Conflict` with error code `REQUEST_REMOVAL_NOT_ALLOWED`.
-- Removal uses soft deletion; the request, its notes, and its history remain in the database.
-- Removal metadata records the reason, timestamp, and actor.
-- Removed requests are excluded from normal listing queries and cannot be accessed through regular request workflows.
-
-### Decision 10: Debounced Server-Side List Operations
-
-**Status:** Finalized
-
-**Decision:** Use a search box with a short debounce delay. Search, filters, sorting, and pagination are executed server-side and work together.
-
-**Why:** Debouncing reduces unnecessary requests while server-side operations provide consistent results across the complete dataset.
-
-**Implementation:** The list API accepts query parameters for search, status, reason, sort field, sort order, page, and page size.
-
-### Decision 11: Relational Database Schema and Activity Logging
-
-**Status:** Finalized
-
-**Decision:** Use PostgreSQL with Prisma and store return requests and their notes in separate related tables.
-
-**Why:** Structured data, database constraints, and explicit relations improve consistency and support reliable request history.
-
-**Implementation:** The schema contains `ReturnRequest` and `RequestNote` models, enums, timestamps, resolution fields, removal metadata, and indexes for common queries.
-
-## Request Lifecycle and Business Rules
-
-All critical business rules are enforced on the server. Frontend controls alone are not sufficient enforcement.
-
-### 1. Status Transitions
-
-| Current Status | Allowed Next Status |
-|---|---|
-| `OPEN` | `IN_REVIEW` |
-| `IN_REVIEW` | `APPROVED`, `REJECTED` |
-| `APPROVED` | `COMPLETED` |
-| `COMPLETED` | None |
-| `REJECTED` | None |
-
-Invalid transitions, such as moving directly from `OPEN` to `COMPLETED`, are refused by the backend.
-
-### 2. Approval and Resolution
-
-Supported resolutions:
-
-- `REFUND`
-- `REPLACEMENT`
-- `STORE_CREDIT`
-
-Validation rules:
-
+   |
+   v
+PostgreSQL / Supabase
+Main Features
+- Create return requests with manually entered customer, order, and item information.
+- Generate a unique human-readable request reference.
+- View status counts on the dashboard.
+- Search by reference, customer, customer email, or order ID.
+- Filter by status and return reason.
+- Sort and paginate requests on the server.
+- Open a dedicated Request Details page.
+- Move requests through the allowed lifecycle.
+- Approve requests with a required resolution type.
+- Require a valid refund amount for refund resolutions.
+- Add categorized activity notes.
+- Automatically create decision notes during approval and rejection.
+- Prevent duplicate active requests for the same order and item.
+- Prevent editing customer and item details after a final decision.
+- Soft-remove eligible requests while retaining their database records and notes.
+- Exclude removed requests from normal operational views.
+Project Structure
+src/
+├── app/
+│   ├── api/
+│   │   ├── health/
+│   │   │   └── route.js
+│   │   └── requests/
+│   │       ├── route.js
+│   │       ├── service.js
+│   │       ├── validation.js
+│   │       └── [id]/
+│   │           ├── route.js
+│   │           ├── notes/
+│   │           │   └── route.js
+│   │           └── remove/
+│   │               └── route.js
+│   ├── requests/
+│   │   ├── [id]/
+│   │   │   └── page.js
+│   │   └── new/
+│   │       └── page.js
+│   ├── globals.css
+│   ├── layout.js
+│   └── page.js
+├── components/
+│   ├── dashboard/
+│   ├── layout/
+│   ├── requests/
+│   └── ui/
+└── lib/
+    ├── db.js
+    └── requests.js
+
+prisma/
+├── migrations/
+├── schema.prisma
+└── seed.js
+Request Lifecycle
+The backend enforces the following transitions:
+OPEN
+  |
+  v
+IN_REVIEW
+  |        \
+  v         v
+APPROVED  REJECTED
+  |
+  v
+COMPLETED
+Current status	Allowed next status
+OPEN	IN_REVIEW
+IN_REVIEW	APPROVED, REJECTED
+APPROVED	COMPLETED
+COMPLETED	None
+REJECTED	None
+
+
+COMPLETED and REJECTED are final states.
+
+Invalid transitions, such as OPEN to APPROVED or OPEN to COMPLETED, are rejected by the backend.
+
+The frontend displays only actions valid for the current status. The backend remains the final authority.
+Approval and Resolution Rules
+Supported resolution types:
+REFUND
+REPLACEMENT
+STORE_CREDIT
+Rules:
 - A request cannot be approved without a valid resolution.
-- A refund requires an amount greater than zero.
-- Refund amounts support at most two decimal places.
-- Replacement and Store Credit must not have a refund amount.
-- Invalid or incomplete resolution data is rejected by the backend.
+- REFUND requires an amount greater than zero.
+- Refund amounts may contain at most two decimal places.
+- REPLACEMENT must not include a refund amount.
+- STORE_CREDIT must not include a refund amount.
+- Invalid resolution data is rejected by the backend.
+Refund approval payload
+{
+  "status": "APPROVED",
+  "resolutionType": "REFUND",
+  "refundAmount": "499.00"
+}
+Replacement approval payload
+{
+  "status": "APPROVED",
+  "resolutionType": "REPLACEMENT"
+}
+Store-credit approval payload
+{
+  "status": "APPROVED",
+  "resolutionType": "STORE_CREDIT"
+}
+When a request is approved or rejected, the backend automatically creates a DECISION activity note.
+Return Reasons
+The implementation supports these return reason values:
+DEFECTIVE
+WRONG_ITEM
+NOT_AS_DESCRIBED
+NO_LONGER_NEEDED
+DELIVERY_ISSUE
+OTHER
+API value	Display label
+DEFECTIVE	Defective
+WRONG_ITEM	Wrong item
+NOT_AS_DESCRIBED	Not as described
+NO_LONGER_NEEDED	No longer needed
+DELIVERY_ISSUE	Delivery issue
+OTHER	Other
 
-### 3. Duplicate Active Requests
 
-The system prevents more than one active request for the same order and item combination.
-
-- A request that has not reached `REJECTED` or `COMPLETED` blocks another request for the same order and item.
-- Once the earlier request reaches `REJECTED` or `COMPLETED`, a new request may be created.
-- Removed requests must not block the creation of a new request.
-
-A PostgreSQL partial unique index enforces the active-request constraint and protects against concurrent creation attempts.
-
-### 4. Editing Restrictions
-
-Customer and item details can be edited while a request is in `OPEN` or `IN_REVIEW`.
-
-Once a request reaches `APPROVED`, `REJECTED`, or `COMPLETED`, detail edits are refused by the backend.
-
-Notes may still be added after a request reaches a final status, provided the request has not been removed.
-
-### 5. Non-Destructive Removal
-
-Only requests in `OPEN` or `REJECTED` status can be removed.
-
-| Request Status | Removal Allowed? |
-|---|---|
-| `OPEN` | Yes |
-| `IN_REVIEW` | No |
-| `APPROVED` | No |
-| `COMPLETED` | No |
-| `REJECTED` | Yes |
-
-Removal requires a non-empty reason and does not permanently delete the database record.
-
-Attempts to remove an ineligible request return HTTP `409 Conflict` with the machine-readable error code `REQUEST_REMOVAL_NOT_ALLOWED`.
-
-The removal operation preserves existing notes and request history. Removed requests are excluded from normal listing queries and cannot be modified through regular request workflows.
-
-## API Documentation
-
-All endpoints use the `/api` base path.
-
-### Health
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/health` | Check database connectivity |
-
-### Requests
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/requests` | List non-removed requests with server-side search, filters, sorting, pagination, and status counts |
-| POST | `/api/requests` | Create a return request |
-| GET | `/api/requests/:id` | Retrieve request details and associated notes |
-| PATCH | `/api/requests/:id` | Update editable request details or perform a valid status transition |
-| POST | `/api/requests/:id/notes` | Add a categorized note |
-| PATCH | `/api/requests/:id/remove` | Soft-remove a request with a reason |
-
-There is no separate `GET /api/requests/:id/notes` endpoint. Request notes are returned as part of `GET /api/requests/:id`.
-
-### List Query Parameters
-
-- `search`: Case-insensitive search across `reference`, `customerName`, `customerEmail`, and `orderId`.
-- `status`: Filter by request status.
-- `reason`: Filter by return reason.
-- `sortBy`: Select an allowed sort field: `createdAt`, `updatedAt`, `customerName`, `status`, or `reference`.
-- `sortOrder`: Select `asc` or `desc`.
-- `page`: Page number. Defaults to `1`.
-- `limit`: Number of records per page. Defaults to `10`, with a maximum of `100`.
-
-Search, filtering, sorting, and pagination are performed on the server and can be combined.
-
-Example:
-
-```http
-GET /api/requests?status=OPEN&reason=DEFECTIVE&sortBy=createdAt&sortOrder=desc&page=1&limit=10
-```
-
-### Create a Request
-
+Request Creation
+Endpoint:
+POST /api/requests
 Example request body:
-
-```json
 {
   "customerName": "Test Customer",
   "customerEmail": "test.customer@example.com",
@@ -305,249 +195,408 @@ Example request body:
   "reason": "DEFECTIVE",
   "description": "The headphones do not power on."
 }
-```
+Required fields:
+- customerName
+- customerEmail
+- orderId
+- itemId
+- itemName
+- reason
+- description
+The backend validates required fields, trimmed values, email format, supported return reasons, and duplicate active requests.
 
-A successful creation returns `201 Created` and includes the generated reference.
+A successful request creation returns HTTP 201 and includes the generated request reference.
+Reference Generation
+References are generated by the backend and are never entered manually.
 
-Supported return reasons:
+Format:
+RET-XXXXXX
+XXXXXX contains six uppercase alphanumeric characters.
 
-- `DAMAGED`
-- `WRONG_ITEM`
-- `SIZE_ISSUE`
-- `NOT_AS_DESCRIBED`
-- `CHANGED_MIND`
+Example:
+RET-A1B2C3
+The database enforces reference uniqueness.
+Duplicate Active Requests
+Only one active request is allowed for the same:
+orderId + itemId
+A request is active when:
+isRemoved = false
+status is not COMPLETED
+status is not REJECTED
+Therefore, requests in these statuses block another request for the same order and item:
+- OPEN
+- IN_REVIEW
+- APPROVED
+A new request is allowed after the earlier request:
+- Reaches COMPLETED
+- Reaches REJECTED
+- Is soft-removed
+The database contains a partial unique index:
+CREATE UNIQUE INDEX unique_active_return_request_per_order_item
+ON "ReturnRequest" ("orderId", "itemId")
+WHERE "isRemoved" = false
+  AND status NOT IN ('COMPLETED', 'REJECTED');
+Request Details
+Request details are available at:
+/requests/[id]
+The details page displays:
+- Request reference
+- Current status
+- Customer name
+- Customer email
+- Order ID
+- Item ID
+- Item name
+- Return reason
+- Full description
+- Created timestamp
+- Last-updated timestamp
+- Resolution type
+- Refund amount when present
+- Chronological activity notes
+Editing Restrictions
+The backend allows customer, order, item, reason, and description updates while a request is:
+- OPEN
+- IN_REVIEW
+After a request reaches one of the following statuses, these details cannot be edited:
+- APPROVED
+- REJECTED
+- COMPLETED
+The current frontend implementation focuses on viewing request details, status actions, notes, and removal. Backend detail-update validation is implemented in the request details route.
+Activity Notes
+Notes are stored in a separate RequestNote table and associated with the parent request.
 
-### Add a Note
+Notes are:
+- Chronological
+- Append-only
+- Never edited through the regular workflow
+- Never deleted through the regular workflow
+- Available throughout the request lifecycle
+- Preserved when a request is soft-removed
+Stored note categories
+INTERNAL_UPDATE
+CUSTOMER_CONTACT
+DECISION
+API value	Display label
+INTERNAL_UPDATE	Internal Update
+CUSTOMER_CONTACT	Customer Contact
+DECISION	Decision
 
-Example request body:
 
-```json
+User-created notes
+Regular user-created notes support:
+INTERNAL_UPDATE
+CUSTOMER_CONTACT
+Endpoint:
+POST /api/requests/[id]/notes
+Example payload:
 {
   "category": "INTERNAL_UPDATE",
   "content": "Checked the issue with the warehouse team."
 }
-```
+The backend:
+- Validates the note category.
+- Requires non-empty content.
+- Trims leading and trailing whitespace.
+- Limits content to 2,000 characters.
+- Assigns the author as Operations Agent.
+- Rejects notes for removed requests.
+The frontend provides:
+- Category selection
+- Required note content
+- Character counter
+- Loading state
+- Duplicate-submit prevention
+- Success feedback
+- API and network error feedback
+- Form preservation after failed submission
+- Server refresh after successful submission
+Decision notes
+DECISION notes are generated automatically by the backend during:
+- Approval
+- Rejection
+They are not manually selectable in the regular Add Note form.
+Request Removal
+Request removal is implemented as a soft delete.
 
-Supported regular note categories:
-
-- `INTERNAL_UPDATE`
-- `CUSTOMER_CONTACT`
-
-Decision notes are created automatically by the backend during approval and rejection transitions.
-
-The backend assigns the note author as `Operations Agent`. Any `author` value sent by the client is ignored.
-
-Notes are chronological and append-only during normal application use. Existing notes are not edited or deleted through the regular workflow.
-
-### Soft-Remove a Request
-
-Example request body:
-
-```json
+Endpoint:
+PATCH /api/requests/[id]/remove
+Example payload:
 {
   "reason": "Created by mistake during testing"
 }
-```
-
-The backend records removal metadata instead of physically deleting the request.
-
-Removal is permitted only for `OPEN` and `REJECTED` requests. Attempts to remove `IN_REVIEW`, `APPROVED`, or `COMPLETED` requests return `409 Conflict`.
-
-### HTTP Response Conventions
-
-| Status Code | Meaning |
-|---|---|
-| `200` | Successful retrieval or update |
-| `201` | Request successfully created |
-| `400` | Invalid input or malformed request |
-| `404` | Request not found |
-| `409` | Duplicate request or lifecycle/removal conflict |
-| `500` / `503` | Unexpected server or service failure, depending on the endpoint |
-
-Response bodies and error codes depend on the endpoint implementation. Errors should not expose stack traces or sensitive database details.
-
-## Database Design
-
-### ReturnRequest
-
-Stores the return reference, customer information, order and item details, reason, description, status, resolution, timestamps, and soft-removal metadata.
-
-Important constraints and indexes include:
-
-- Unique request reference.
-- Status and removal-state index for dashboard queries.
-- Order/item lookup index.
-- Customer and reason indexes.
-- Partial unique index preventing duplicate active order/item requests.
-
-### RequestNote
-
-Stores the associated request ID, category, content, author, and creation timestamp.
-
-Notes reference their parent request through a foreign key and are intended to remain append-only during normal application use.
-
-## Seed Data
-
-The development database is seeded with 30 return requests and associated notes.
-
-The seed dataset covers different lifecycle statuses and return reasons so that dashboard counts, filtering, pagination, and request-detail workflows can be tested without manually creating every record.
-
-The configured seed script is:
-
-```json
+Removal is permitted only for:
+- OPEN
+- REJECTED
+Removal is refused for:
+- IN_REVIEW
+- APPROVED
+- COMPLETED
+For an ineligible request, the backend returns HTTP 409 Conflict:
 {
-  "prisma:seed": "node prisma/seed.js"
+  "success": false,
+  "error": {
+    "code": "REQUEST_REMOVAL_NOT_ALLOWED",
+    "message": "Only open or rejected requests can be removed."
+  }
 }
-```
+The request status eligibility condition is included in the atomic database update. This prevents a request from being removed if it becomes ineligible between checking and updating.
+Removal metadata
+The backend records:
+- isRemoved
+- removedAt
+- removedBy
+- removalReason
+The request and its notes are not physically deleted.
+Removal frontend behavior
+The details page:
+- Shows the Remove Request action only for OPEN and REJECTED.
+- Opens a custom accessible React modal.
+- Requires a non-empty removal reason.
+- Trims the reason before sending.
+- Limits the reason to 500 characters.
+- Shows a character counter.
+- Prevents duplicate submissions.
+- Prevents dismissal while removal is in progress.
+- Supports Cancel, backdrop dismissal, and Escape-key dismissal while idle.
+- Displays API and network errors inside the modal.
+- Navigates back to the dashboard after successful removal.
+Removed request behavior
+Removed requests:
+- Remain in PostgreSQL.
+- Retain their notes.
+- Are excluded from dashboard results.
+- Are excluded from status counts.
+- Return 404 REQUEST_NOT_FOUND from the regular details endpoint.
+- Cannot receive new notes.
+- Do not block a new request for the same order and item.
+API Endpoints
+Health
+GET /api/health
+Request collection
+GET /api/requests
+POST /api/requests
+The list endpoint supports:
+search
+status
+reason
+sortBy
+sortOrder
+page
+limit
+Request details and lifecycle
+GET /api/requests/[id]
+PATCH /api/requests/[id]
+The PATCH endpoint supports request detail updates and status transitions according to the backend rules.
+Notes
+POST /api/requests/[id]/notes
+Removal
+PATCH /api/requests/[id]/remove
+Response and Error Conventions
+Successful responses use the following general shape:
+{
+  "success": true
+}
+Error responses use:
+{
+  "success": false,
+  "error": {
+    "code": "MACHINE_READABLE_CODE",
+    "message": "Human-readable error message."
+  }
+}
+Common status codes:
+Status	Meaning
+200	Successful retrieval or update
+201	Request or note successfully created
+400	Invalid input or malformed JSON
+404	Request not found or removed
+409	Duplicate request or lifecycle/removal conflict
+500	Unexpected server error
 
-Run it using:
 
-```bash
+The backend does not return stack traces or sensitive database details to clients.
+Database Design
+ReturnRequest
+Stores:
+- Request ID
+- Unique reference
+- Customer information
+- Order and item information
+- Return reason
+- Description
+- Request status
+- Resolution data
+- Decision metadata
+- Removal metadata
+- Creation and update timestamps
+Important fields:
+id
+reference
+customerName
+customerEmail
+orderId
+itemId
+itemName
+reason
+description
+status
+resolutionType
+refundAmount
+decisionAt
+decidedBy
+isRemoved
+removedAt
+removedBy
+removalReason
+createdAt
+updatedAt
+RequestNote
+Stores:
+id
+requestId
+category
+content
+author
+createdAt
+Notes reference their parent request through a foreign-key relation. Normal request operations do not delete notes.
+Seed Data
+The seed script is:
+prisma/seed.js
+Run it with:
 npm run prisma:seed
-```
+The seed script:
+- Creates 30 sample return requests.
+- Covers every supported status.
+- Covers every supported return reason.
+- Creates activity notes.
+- Creates decision notes for decided requests.
+- Uses references beginning with RET-SEED-.
+- Checks whether seed data already exists before inserting.
+The seed script is intended for a development database.
 
-The seed script checks for existing seed records before inserting data and is designed to avoid creating duplicate seed records when rerun.
-
-Run the seed command only against a database where development sample data is appropriate.
-
-## Validation and Testing
-
-The following request-creation checks have been reported as passing during manual testing:
-
-- Valid request creation.
-- Duplicate active request rejection.
-- Required-field and email validation.
-- Invalid reason rejection.
-
-The request-removal API was also manually tested with records across all five statuses:
-
-- `OPEN` and `REJECTED` requests were successfully removed.
-- `IN_REVIEW`, `APPROVED`, and `COMPLETED` requests were refused with `409 Conflict` and remained active.
-- The backend removal operation uses a conditional database update to enforce eligibility.
-
-Additional backend checks should cover:
-
-- Every permitted and forbidden status transition.
-- Missing or invalid resolution data.
-- Refund amount boundaries.
-- Detail-edit restrictions after a final decision.
-- Adding notes to completed and rejected requests.
-- Soft removal and subsequent request creation.
-- Combined search, filtering, sorting, and pagination.
-- Nonexistent IDs and malformed JSON.
-- Concurrent creation and concurrent edit/status-update attempts.
-
-Manual tests do not replace automated tests or deployment checks. Only mark additional cases as passed after running them.
-
-## Assumptions and Limitations
-
-- Customer, order, and item information is entered manually; no external order-system integration is assumed.
-- Actor fields should be connected to authenticated users before production use.
-- The system enforces a defined lifecycle rather than allowing arbitrary status changes.
-- Soft removal preserves records; recovery functionality and a dedicated removal-history UI are not assumed unless implemented.
-- Authentication, authorization, automated integration tests, and deployment-specific operational checks must be reviewed against the final implementation.
-- The AI support assistant described below is a future improvement, not an implemented feature.
-- Production readiness is not claimed solely on the basis of local manual tests.
-
-## Local Development
-
-### Prerequisites
-
-- Node.js and npm
-- PostgreSQL database, such as a Supabase PostgreSQL project
-
-### 1. Install Dependencies
-
-```bash
-npm install
-```
-
-### 2. Configure Environment Variables
-
-Create a `.env` file in the project root and configure the database connection expected by `prisma.config.ts`.
-
-```env
+The current database may contain additional manually created test or verification records in addition to the 30 seed records.
+Environment Configuration
+Create a .env file in the project root:
 DB_URL="your_postgresql_connection_string"
-```
+DB_URL is used by the Prisma client and seed script.
 
-Use your actual PostgreSQL connection string. Never commit `.env` or expose database credentials in the repository.
-
-Make sure `.gitignore` excludes `.env` and other files containing secrets. Provide a `.env.example` with placeholder values for the required environment variables.
-
-### 3. Generate the Prisma Client
-
-```bash
+Do not commit .env or expose database credentials.
+Local Development
+Prerequisites
+- Node.js
+- npm
+- PostgreSQL
+- Supabase PostgreSQL or another PostgreSQL provider
+Install dependencies
+npm install
+Generate Prisma Client
 npx prisma generate
-```
-
-### 4. Apply Database Migrations
-
+Apply migrations
 For local development:
-
-```bash
 npx prisma migrate dev
-```
-
-Review migrations before applying them to any shared or production database.
-
-### 5. Seed the Database
-
-```bash
+Review migrations before applying them to a shared or production database.
+Seed the database
 npm run prisma:seed
-```
-
 Only run the seed command against a database where development sample data is appropriate.
-
-### 6. Start the Development Server
-
-```bash
+Start the application
 npm run dev
-```
+Open:
+http://localhost:3000
+Production Deployment
+Configure DB_URL in the hosting provider's environment variables.
 
-Open [http://localhost:3000](http://localhost:3000).
+Apply committed migrations with:
+npx prisma migrate deploy
+Do not run prisma migrate dev against a production database.
 
-## Production Deployment
+After deployment, verify:
+- /api/health
+- Dashboard loading
+- Request creation
+- Request details
+- Status transitions
+- Resolution handling
+- Notes
+- Removal rules
+- Database persistence
+Do not seed production unless sample data is explicitly required.
+Validation Performed
+The following checks were executed during development:
+- Dashboard loading
+- Request details loading
+- Request creation validation
+- Duplicate active-request handling
+- Status transition validation
+- Resolution validation
+- Notes creation and error handling
+- Removed-request filtering
+- Removed-request details returning 404
+- Notes rejected for removed requests
+- Reuse of the same order/item after removal
+- Removal checks for all five statuses
+- Custom removal modal browser checks
+- npm run lint
+- npm run build
+Removal status testing produced the following results:
+Status	Result
+OPEN	Removal succeeded
+REJECTED	Removal succeeded
+IN_REVIEW	Refused with HTTP 409
+APPROVED	Refused with HTTP 409
+COMPLETED	Refused with HTTP 409
 
-1. Configure `DB_URL` in the hosting provider's environment variables using the PostgreSQL connection string for the production database. Keep credentials out of source control and logs.
-2. Apply committed migrations to the production database:
 
-   ```bash
-   npx prisma migrate deploy
-   ```
+The current database may contain test records created during manual verification. These are separate from the 30 seed records.
 
-3. Build and deploy the application using the hosting provider's supported Next.js workflow.
-4. After deployment, verify `/api/health`, load the dashboard, and test the core workflows against the deployed database.
-
-Do not run `prisma migrate dev` against the production database. Only seed production when sample data is explicitly appropriate.
-
-Before submission, verify that the deployed application and public repository links are accurate and accessible. Ensure the database persists data, seed data is available where required, and the README matches the final implementation.
-
-## Time Spent
-
-Approximately **9 hours 15 minutes** were spent on the assignment.
-
-| Activity | Time Spent |
-|---|---:|
-| Understanding the requirements | 1 hour |
-| Project setup and learning the Next.js setup | 45 minutes |
-| Database design | 30 minutes |
-| API design and planning | 30 minutes |
-| Backend controller implementation | 3 hours |
-| Frontend implementation | 2.5 hours |
-| Additional implementation and validation | Approximately 1 hours |
-| **Total** | **Approximately 9 hours 15 minutes** |
-
-## What I Would Improve With More Time
-
-- **Automated testing:** Add unit and API integration tests for lifecycle transitions, validation, duplicate prevention, notes, and removal eligibility.
-- **Authentication and role-based access:** Introduce sign-in and permissions so actions are limited to the appropriate users.
-- **AI-powered support assistant:** Explore a conversational assistant that helps support agents find request information, understand request history, and identify next steps. Access would respect user permissions, and important actions would remain subject to the existing business rules and normal workflow.
-
-## Implementation Status
-
-The application includes a dashboard for viewing and managing return requests, server-side search and filtering, sorting and pagination, a dedicated request-creation flow, request details, lifecycle and resolution handling, chronological append-only notes, duplicate-active-request prevention, and soft removal with status-based eligibility checks.
-
-The database schema, migrations, and development seed data support the core workflow.
-
-Automated testing, authentication and role-based authorization, and the AI support assistant are listed as future improvements rather than completed features. Run the final validation and deployment checks against the actual code and target environment before treating a deployment as production-ready.
-deployed link : https://pratyayati-ops-g5qs.vercel.app/
+The deployed application was also inspected manually. The deployed dashboard and request details pages loaded successfully, but the deployed database contained additional verification records. Production mutation testing should be performed only against a controlled database.
+Known Limitations
+- Authentication is not implemented.
+- Role-based authorization is not implemented.
+- Actor values such as Operations Agent are fixed values rather than authenticated users.
+- Removed-request recovery is not implemented.
+- There is no dedicated removal-history interface.
+- Automated unit and integration test suites have not been added.
+- The AI support assistant is not implemented.
+- The deployment database may contain manual verification records in addition to seeded records.
+- Production mutation testing should be performed carefully against a controlled database.
+- Mobile layout should be checked on actual devices and browsers, especially around the notes form at 375px width.
+Future Improvements
+- Add authentication and role-based authorization.
+- Associate removedBy, decidedBy, and note authors with authenticated users.
+- Add automated API and integration tests.
+- Add a removed-request audit view.
+- Add controlled recovery for removed requests if required.
+- Expand concurrent-operation test coverage.
+- Add production monitoring and structured logging.
+- Improve mobile layout validation across real devices and browsers.
+Implementation Status
+Implemented
+- Dashboard
+- Server-side search
+- Server-side filtering
+- Server-side sorting
+- Server-side pagination
+- Request creation
+- Generated request references
+- Request details page
+- Status transitions
+- Resolution handling
+- Refund validation
+- Categorized notes
+- Chronological append-only notes
+- Automatic decision notes
+- Duplicate active-request prevention
+- Detail-edit restrictions in the backend
+- Soft removal
+- Status-based removal eligibility
+- Removal metadata preservation
+- Removed-request filtering
+- Custom removal modal
+Not implemented
+- Authentication
+- Authorization
+- Automated test suite
+- Removed-request recovery
+- AI support assistant
+- Dedicated removal-history UI
